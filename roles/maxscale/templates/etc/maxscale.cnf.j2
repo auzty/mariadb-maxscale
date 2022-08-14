@@ -1,0 +1,52 @@
+[maxscale]
+threads=1
+syslog=1
+maxlog=1
+log_warning=1
+log_notice=1
+log_info=0
+log_debug=0
+
+[Galera-Monitor]
+type=monitor
+module=galeramon
+servers={{ hostlistarr |join(',') }}
+user=maxscale
+password={{ maxscale_password }}
+monitor_interval=2000
+disable_master_failback=1
+available_when_donor=1
+
+[qla]
+type=filter
+module=qlafilter
+filebase=/var/log/maxscale/logfilter
+
+[fetch]
+type=filter
+module=regexfilter
+match=fetch
+replace=select
+
+[RW-Split-Router]
+type=service
+router=readwritesplit
+servers={{ hostlistarr |join(',') }}
+user=maxscale
+password={{ maxscale_password }}
+max_slave_connections=2
+
+[RW-Split-Listener]
+type=listener
+service=RW-Split-Router
+protocol=MySQLClient
+port=3306
+
+{% for host in hostlistarr %}
+[{{host}}]
+type=server
+address={{host}}
+port=3306
+protocol=MySQLBackend
+
+{% endfor %}

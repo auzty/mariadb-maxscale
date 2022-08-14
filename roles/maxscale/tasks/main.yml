@@ -1,0 +1,110 @@
+---
+- name: sed to local repo (if error)
+  shell: sed -i -e 's/deb.debian.org/kebo.pens.ac.id/g' /etc/apt/sources.list
+  tags:
+    - maxscale
+
+- name: update repository
+  apt: update_cache=yes
+  tags:
+    - maxscale
+
+- name: install requirement
+  apt: name={{item}} state=present
+  with_items:
+    - apt-transport-https
+    - curl
+  tags:
+    - maxscale
+
+- name: set lsb_release
+  shell: "lsb_release -cs"
+  register: lsbreleases
+  tags:
+    - maxscale
+
+- name: add mariadb repository
+  when: lsbreleases.stdout == "bullseye"
+  ansible.builtin.get_url:
+    url: https://downloads.mariadb.com/MariaDB/mariadb_repo_setup
+    dest: /opt/mariadb_repo_setup
+    mode: 0700
+  tags:
+    - maxscale
+
+- name: run mariadbscript
+  when: lsbreleases.stdout == "bullseye"
+  shell: /opt/mariadb_repo_setup --os-type=debian --os-version={{lsbreleases.stdout}} --mariadb-server-version=10.6
+  tags:
+    - maxscale
+
+- name: removing old repo list
+  shell: rm /etc/apt/sources.list.d/mariadb.list.old* -f
+  tags:
+    - maxscale
+
+- name: update repository
+  apt: update_cache=yes
+  tags:
+    - maxscale
+
+- name: install maxscale
+  apt: name=maxscale state=present
+  tags:
+    - maxscale
+
+- name: debugging
+  debug: 
+    msg: "ini jumlah hostlist {{ hostvars[inventory_hostname] }} "
+  tags:
+    - maxscale
+
+- name: add config
+  template: src=etc/maxscale.cnf.j2 dest=/etc/maxscale.cnf owner=root group=root mode=0666
+  tags:
+    - maxscale
+
+- name: Restart maxscale
+  ansible.builtin.service:
+    name: maxscale
+    state: restarted
+  tags:
+    - maxscale
+
+- name: Add the user 'keepalived_script' for keepalived
+  ansible.builtin.user:
+    name: keepalived_script
+    comment: keepalived_script
+  tags:
+    - keepalived
+
+- name: install keppalived
+  apt: name=keepalived state=present
+  tags:
+    - keepalived
+
+- name: add check script
+  template: 
+    src: opt/maxscale-check.sh
+    dest: /opt/maxscale-check.sh
+    owner: keepalived_script
+    mode: 0755
+  tags:
+    - keepalived
+
+- name: set fact variable
+  set_fact: number_count={{ number_count | int - 1 }}
+  tags:
+    - keepalived
+
+- name: add keepalived config
+  template: src=etc/keepalived.conf.j2 dest=/etc/keepalived/keepalived.conf owner=root group=root mode=0666
+  tags:
+    - keepalived
+
+- name: start keepalived
+  service:
+    name: keepalived
+    state: started
+  tags:
+    - keepalived

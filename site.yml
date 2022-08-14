@@ -1,0 +1,20 @@
+---
+- hosts: mariadbhost
+  gather_facts: false
+  user: root
+  become: yes
+  roles:
+    - mariadb
+  vars: 
+      current_password: "passwordku"
+      maxscale_password: "maxscalepwd"
+      hostlis: "{{groups['mariadbhost']|join(',')}}"
+- hosts: maxscalehost
+  gather_facts: false
+  user: root
+  become: yes
+  roles:
+    - maxscale
+  vars: 
+      maxscale_password: "maxscalepwd"
+      hostlistarr: "{{ groups['mariadbhost'] }}"

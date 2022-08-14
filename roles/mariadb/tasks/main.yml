@@ -1,0 +1,254 @@
+---
+- name: sed to local repo (if error)
+  shell: sed -i -e 's/deb.debian.org/kebo.pens.ac.id/g' /etc/apt/sources.list
+  tags:
+    - mariadb
+
+- name: update repository
+  apt: update_cache=yes
+  tags:
+    - mariadb
+
+- name: install requirement
+  apt: name={{item}} state=present
+  with_items:
+    - apt-transport-https
+    - curl
+  tags:
+    - mariadb
+
+- name: set uname var
+  shell: "uname -r"
+  register: unamedistro
+  tags:
+    - mariadb
+
+- name: set lsb_release
+  shell: "lsb_release -cs"
+  register: lsbreleases
+  tags:
+    - mariadb
+
+- name: install python pip 
+  apt: name="python3-pip" state=present
+  when: lsbreleases.stdout == "bullseye"
+  tags:
+    - mariadb
+  
+- name: install ansible module dep
+  pip: name="{{item}}"
+  when: lsbreleases.stdout == "bullseye"
+  with_items: 
+    - urllib3
+    - pyOpenSSL
+    - ndg-httpsclient
+    - pyasn1
+    - PyMySQL
+  tags:
+    - mariadb
+
+- name: add mariadb repository
+  when: lsbreleases.stdout == "bullseye"
+  ansible.builtin.get_url:
+    url: https://downloads.mariadb.com/MariaDB/mariadb_repo_setup
+    dest: /opt/mariadb_repo_setup
+    mode: 0700
+  tags:
+    - mariadb
+
+- name: run mariadbscript
+  when: lsbreleases.stdout == "bullseye"
+  shell: /opt/mariadb_repo_setup --os-type=debian --os-version={{lsbreleases.stdout}} --mariadb-server-version=10.6
+  tags:
+    - mariadb
+
+- name: removing old repo list
+  shell: rm /etc/apt/sources.list.d/mariadb.list.old* -f
+  tags:
+    - mariadb
+
+- name: update repository
+  apt: update_cache=yes
+  tags:
+    - mariadb
+
+- name: install mariadb
+  apt: name=mariadb-server state=present
+  tags:
+    - mariadb
+
+- name: removing when force
+  shell: "rm -f /var/lib/mysql/{{ item }}"
+  with_items:
+    - grastate.dat
+    - galera.cache
+  when: isForced is defined and isForced == 'yes'
+  tags:
+    - mariadb
+    - galera
+
+- name: check galera already init or not
+  stat:
+    path: "/var/lib/mysql/grastate.dat"
+  register: galerastate
+  tags:
+    - mariadb
+    - galera
+  
+- name: Ensures /tmp/galera dir exists
+  file: path=/tmp/galera state=directory
+  tags:
+    - mariadb
+    - galera
+
+- name: Clearing the previous config on temporary dir
+  shell: rm -f /tmp/galera/*
+  tags:
+    - mariadb
+    - galera
+
+- name: setting up mariadb config
+  template: 
+    src=etc/mysql/my.cnf.j2 
+    dest=/tmp/galera/0-my.cnf
+    owner=root 
+    group=root 
+    mode=0600
+  tags:
+    - mariadb
+    - galera
+
+- name: setting up galera cluster
+  template: 
+    src=etc/mysql/galera.cnf.j2 
+    dest=/tmp/galera/1-galera.cnf
+    owner=root 
+    group=root 
+    mode=0600
+  tags:
+    - mariadb
+    - galera
+
+- name: testing fragmen
+  assemble: 
+    src: /tmp/galera
+    dest: /etc/mysql/my.cnf
+    delimiter: '############ galera config ############ '
+  tags:
+    - mariadb
+    - galera
+
+- name: set safe bootstrap to 1 on master
+  replace: 
+    path: /var/lib/mysql/grastate.dat
+    regexp: 'safe_to_bootstrap.*'
+    replace: 'safe_to_bootstrap: 1'
+  when: galerastate.stat.exists
+  tags:
+    - galera
+
+- name: generate cluster
+  shell: galera_new_cluster
+  when: master is defined and master == 'yes' #and not galerastate.stat.exists
+  tags:
+    - mariadb
+    - galera
+
+- name: debugging
+  debug: 
+    msg: "ini jumlah hostlist {{ hostlis }} "
+
+- name: Restart mariadb on master first, in all cases
+  ansible.builtin.service:
+    name: mariadb
+    state: started
+  when: master is defined and master == 'yes'
+  tags:
+    - mariadb
+    - galera
+
+- name: Restart mariadb on other nodes
+  ansible.builtin.service:
+    name: mariadb
+    state: started
+  when: master is not defined
+  tags:
+    - mariadb
+    - galera
+
+- name: Add .my.cnf
+  template: src=my.cnf.j2 dest=/root/.my.cnf owner=root group=root mode=0600
+  when: master is defined and master == 'yes'
+  tags:
+    - mariadb
+
+- name: Set root Password
+  mysql_user: 
+    login_password={{ current_password }} 
+    check_implicit_admin=yes 
+    name=root 
+    host={{ item }} 
+    password={{ current_password }} 
+    login_unix_socket=/var/run/mysqld/mysqld.sock
+    state=present 
+  with_items:
+    - localhost
+  when: master is defined and master == 'yes'
+  tags:
+    - mariadb
+
+- name: create maxscaledb user
+  mysql_user: 
+    check_implicit_admin=yes 
+    name=maxscale 
+    host=% 
+    password={{ maxscalepwd}} 
+    login_unix_socket=/var/run/mysqld/mysqld.sock
+    priv="*.*:ALL" 
+    state=present 
+  when: master is defined and master == 'yes'
+  tags:
+    - mariadb
+
+- name: Reload privilege tables
+  command: 'mysql -ne "{{ item }}"'
+  with_items:
+    - FLUSH PRIVILEGES
+  changed_when: False
+  when: master is defined and master == 'yes'
+  tags:
+    - mariadb
+
+- name: Remove anonymous users
+  command: 'mysql -ne "{{ item }}"'
+  with_items:
+    - DELETE FROM mysql.user WHERE User=''
+  changed_when: False
+  when: master is defined and master == 'yes'
+  tags:
+    - mariadb
+
+- name: Remove test database and access to it
+  command: 'mysql -ne "{{ item }}"'
+  with_items:
+    - DROP DATABASE IF EXISTS test
+    - DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%'
+  changed_when: False
+  when: master is defined and master == 'yes'
+  tags:
+    - mariadb
+
+- name: Reload privilege tables
+  command: 'mysql -ne "{{ item }}"'
+  with_items:
+    - FLUSH PRIVILEGES
+  changed_when: False
+  when: master is defined and master == 'yes'
+  tags:
+    - mariadb
+
+- name: make sure mariadbs start
+  service: name=mariadb state=started
+  tags:
+    - mariadb
+

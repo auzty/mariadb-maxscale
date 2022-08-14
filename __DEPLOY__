@@ -1,0 +1,8 @@
+[mariadbhost]
+192.168.56.120 nodename=maria1 master=yes ansible_ssh_private_key_file=/home/myhome/.ssh/id_rsa
+192.168.56.121 nodename=maria2 ansible_ssh_private_key_file=/home/myhome/.ssh/id_rsa
+192.168.56.122 nodename=maria3 ansible_ssh_private_key_file=/home/myhome/.ssh/id_rsa
+
+[maxscalehost]
+192.168.56.130 maxscalenode=maxscale1 noderole=master ansible_ssh_private_key_file=/home/myhome/.ssh/id_rsa
+192.168.56.131 maxscalenode=maxscale2 ansible_ssh_private_key_file=/home/myhome/.ssh/id_rsa
