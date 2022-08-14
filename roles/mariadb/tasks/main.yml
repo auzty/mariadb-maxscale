@@ -202,7 +202,7 @@
     check_implicit_admin=yes 
     name=maxscale 
     host=% 
-    password={{ maxscalepwd}} 
+    password={{ maxscale_password }} 
     login_unix_socket=/var/run/mysqld/mysqld.sock
     priv="*.*:ALL" 
     state=present 
